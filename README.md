@@ -51,6 +51,27 @@ grok --version
 See the [changelog](https://x.ai/build/changelog) for the latest fixes,
 features, and improvements in each release.
 
+## Fork extras
+
+This tree tracks `xai-org/grok-build` plus a few isolated additions (see
+`theme/background.rs`, `nix/`, `.github/workflows/release.yml`). Rebase
+onto upstream with `git rebase origin/main`.
+
+### Custom canvas background
+
+Built-in themes paint over the terminal profile. To match your emulator
+(including transparency), set in `~/.grok/config.toml`:
+
+```toml
+[ui]
+theme = "grokday"          # keep light-theme accents
+background = "terminal"    # do not paint the canvas
+# background = "#fdf6e3"   # or remap the bg ramp around a hex color
+```
+
+`GROK_BACKGROUND` / `LC_GROK_BACKGROUND` override the file. Restart Grok
+after changing it. This is not a `/settings` row.
+
 ## Nix (prebuilt GitHub Release)
 
 This fork does **not** compile the Rust workspace in Nix — that needs xAI's

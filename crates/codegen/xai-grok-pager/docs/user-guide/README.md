@@ -24,7 +24,7 @@ Customize and extend Grok Build.
 
 | # | Document | Description |
 |---|----------|-------------|
-| 6 | [Theming and Appearance](06-theming.md) | Themes, the `/theme` command, custom canvas background, `pager.toml`, and color-support detection |
+| 6 | [Theming and Appearance](06-theming.md) | Themes, the `/theme` command, `pager.toml`, and color-support detection |
 | 7 | [MCP Servers](07-mcp-servers.md) | External tool integrations through the Model Context Protocol |
 | 8 | [Skills](08-skills.md) | Reusable prompt packages in the SKILL.md format |
 | 9 | [Plugins](09-plugins.md) | Bundle and share skills, commands, agents, hooks, and MCP servers; install from, author, and govern marketplaces (organization controls) |
