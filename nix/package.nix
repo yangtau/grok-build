@@ -24,10 +24,8 @@ let
   triple =
     {
       aarch64-darwin = "aarch64-apple-darwin";
-      x86_64-linux = "x86_64-unknown-linux-gnu";
-      aarch64-linux = "aarch64-unknown-linux-gnu";
     }
-    .${system} or (throw "grok: no prebuilt binary for ${system}");
+    .${system} or (throw "grok: no prebuilt binary for ${system} (this fork ships aarch64-darwin only)");
 
   hash =
     hashes.${system} or (throw ''
