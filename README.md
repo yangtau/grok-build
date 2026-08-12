@@ -54,8 +54,9 @@ features, and improvements in each release.
 ## Fork extras
 
 This tree tracks `xai-org/grok-build` plus a few isolated additions (see
-`theme/background.rs`, `nix/`, `.github/workflows/release.yml`). Rebase
-onto upstream with `git rebase origin/main`.
+`theme/background.rs`, `nix/`, `.github/workflows/`). A scheduled Action
+rebases `main` onto `xai-org/grok-build` every 3 hours (`rebase-upstream.yml`);
+conflicts fail the job instead of merging. Manual: `gh workflow run rebase-upstream.yml`.
 
 ### Custom canvas background
 
