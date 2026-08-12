@@ -51,6 +51,34 @@ grok --version
 See the [changelog](https://x.ai/build/changelog) for the latest fixes,
 features, and improvements in each release.
 
+## Nix (prebuilt GitHub Release)
+
+This fork does **not** compile the Rust workspace in Nix — that needs xAI's
+private `async-openai` fork. CI builds the binary and the flake `fetchurl`s
+the Release asset.
+
+```sh
+# one-off
+nix profile install github:yangtau/grok-build
+
+# or pin in your flake
+#   inputs.grok-build.url = "github:yangtau/grok-build";
+#   home.packages = [ grok-build.packages.${system}.default ];
+```
+
+Publish a new binary (from this repo):
+
+```sh
+gh workflow run release.yml
+```
+
+That builds `aarch64-darwin`, `x86_64-linux`, and `aarch64-linux`, creates
+a GitHub Release, and commits `nix/hashes.json` so the flake can fetch it.
+If you already install official `grok` via home-manager / `llm-agents.nix`,
+replace that package with this flake's output so the two don't fight on
+`PATH`. The wrapper passes `--no-auto-update` so the official updater
+cannot overwrite the fork binary.
+
 ## Building from source
 
 Requirements:
