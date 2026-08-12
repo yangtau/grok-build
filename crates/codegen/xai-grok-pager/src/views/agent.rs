@@ -253,7 +253,11 @@ impl AgentViewLayout {
             constraints.push(Constraint::Length(voice_recording_height));
         }
         constraints.push(Constraint::Length(prompt_height));
-        let shortcuts_gap = if bottom_vpad == 0 { 0u16 } else { 1 };
+        let shortcuts_gap = if bottom_vpad == 0 || shortcuts_height == 0 {
+            0u16
+        } else {
+            1
+        };
         if shortcuts_gap > 0 {
             constraints.push(Constraint::Length(shortcuts_gap));
         }

@@ -1374,7 +1374,7 @@ impl AgentView {
             0,
             prompt_gap,
             voice_recording_height,
-            1,
+            crate::theme::shortcuts_bar_pref::reserved_height(),
             compact,
         );
         let search_active =
@@ -1450,7 +1450,7 @@ impl AgentView {
                         0,
                         prompt_gap,
                         voice_recording_height,
-                        1,
+                        crate::theme::shortcuts_bar_pref::reserved_height(),
                         compact,
                     );
                     if search_reserved_rows > 0 {

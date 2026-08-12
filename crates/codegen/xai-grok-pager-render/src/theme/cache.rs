@@ -314,6 +314,7 @@ pub fn reset_for_test() {
     set_terminal_native_lock(false);
     *AUTO_THEME_CONFIG.lock().unwrap_or_else(|e| e.into_inner()) = None;
     super::background::reset_for_test();
+    super::shortcuts_bar_pref::reset_for_test();
 }
 
 /// Seed `AUTO_THEME_CONFIG` with explicit defaults so `auto_theme_config()`
@@ -340,6 +341,7 @@ pub fn pin_theme() -> std::sync::MutexGuard<'static, ()> {
     let guard = test_lock().lock().unwrap_or_else(|e| e.into_inner());
     set(ThemeKind::GrokNight);
     super::background::reset_for_test();
+    super::shortcuts_bar_pref::reset_for_test();
     // Color level is a write-once `OnceLock`; tests run without a TTY so it
     // resolves to `TrueColor` anyway. Pin it explicitly (best-effort: ignore the
     // already-initialized `Err`) so the measure path that reads it stays fixed.

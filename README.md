@@ -73,6 +73,18 @@ background = "terminal"    # do not paint the canvas
 `GROK_BACKGROUND` / `LC_GROK_BACKGROUND` override the file. Restart Grok
 after changing it. This is not a `/settings` row.
 
+### Hide the shortcuts bar
+
+This fork hides the bottom hint row (`Enter: send now | …`) by default.
+`Ctrl+.` still opens the full cheatsheet. To show the bar:
+
+```toml
+[ui]
+show_shortcuts_bar = true
+```
+
+Or `GROK_SHOW_SHORTCUTS_BAR=1`. Restart Grok after changing it.
+
 ## Nix (prebuilt GitHub Release)
 
 This fork does **not** compile the Rust workspace in Nix — that needs xAI's
