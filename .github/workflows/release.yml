@@ -1,23 +1,27 @@
 # Build the grok CLI and publish GitHub Release assets for the Nix flake.
 #
-# Trigger: workflow_dispatch, or a tag matching r-* / v*.
-# The flake (nix/package.nix) fetchurl's these assets by tag + SRI hash.
+# Trigger: push to main, workflow_dispatch, or a tag matching r-* / v*.
+# macOS aarch64 only. The flake fetchurl's the asset by tag + SRI hash.
 # After a successful publish this job commits nix/hashes.json ([skip ci]).
 name: release
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - "r-*"
       - "v*"
+    paths-ignore:
+      - "nix/hashes.json"
+      - "**/*.md"
 
 permissions:
   contents: write
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,12 +40,6 @@ jobs:
           - os: macos-14
             triple: aarch64-apple-darwin
             nix_system: aarch64-darwin
-          - os: ubuntu-24.04
-            triple: x86_64-unknown-linux-gnu
-            nix_system: x86_64-linux
-          - os: ubuntu-24.04-arm
-            triple: aarch64-unknown-linux-gnu
-            nix_system: aarch64-linux
     steps:
       - uses: actions/checkout@v4
 
@@ -55,26 +53,18 @@ jobs:
           cache-on-failure: true
 
       - name: Install protoc (macOS)
-        if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Install build deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler cmake pkg-config
-
       - name: Drop private async-openai git patch
-        # The workspace patches crates.io async-openai onto xAI's private
-        # our-forks repo, which public CI cannot clone. crates.io 0.33.0 is
-        # the declared workspace version; sampling-types already work around
-        # the missing fork-only fields.
+        # Public CI cannot clone xAI's our-forks/async-openai. crates.io 0.33.0
+        # is missing ReasoningEffort::Max (fork-only). Map Max → High in-tree
+        # for this job only — do not commit that workaround.
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("Cargo.toml")
-          text = p.read_text()
+
+          cargo = Path("Cargo.toml")
+          text = cargo.read_text()
           needle = (
               "[patch.crates-io]\n"
               'async-openai = { git = "https://github.com/our-forks/async-openai.git", '
@@ -82,8 +72,23 @@ jobs:
           )
           if needle not in text:
               raise SystemExit("expected [patch.crates-io] async-openai block missing")
-          p.write_text(text.replace(needle, "", 1))
+          cargo.write_text(text.replace(needle, "", 1))
           print("removed [patch.crates-io] async-openai")
+
+          types = Path("crates/codegen/xai-grok-sampling-types/src/types.rs")
+          src = types.read_text()
+          src2 = src.replace(
+              "Self::Max => crate::rs::ReasoningEffort::Max,",
+              "Self::Max => crate::rs::ReasoningEffort::High,",
+          )
+          src2 = src2.replace(
+              "            crate::rs::ReasoningEffort::Max => Self::Max,\n",
+              "",
+          )
+          if src2 == src:
+              raise SystemExit("failed to patch ReasoningEffort::Max mappings")
+          types.write_text(src2)
+          print("mapped ReasoningEffort::Max -> High for crates.io async-openai")
           PY
           cargo update -p async-openai
 
@@ -197,7 +202,7 @@ jobs:
           fi
 
       - name: Commit hashes for the flake
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
