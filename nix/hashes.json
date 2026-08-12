@@ -1,5 +1,7 @@
 {
-  "tag": null,
-  "version": "0.0.0",
-  "hashes": {}
+  "tag": "r-6ed71c5",
+  "version": "1.0.1-6ed71c5",
+  "hashes": {
+    "aarch64-darwin": "sha256-rcmwn61Bqw5eFODjE8+paXyKGy8h3Z2ivAxlBZ7gTsM="
+  }
 }
