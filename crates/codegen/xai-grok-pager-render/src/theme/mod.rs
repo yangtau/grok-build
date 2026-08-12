@@ -10,6 +10,7 @@
 //! capability level via [`Theme::quantized`]. Runtime-generated colors (syntax
 //! highlighting, blending) are also quantized via [`color_support::quantize`].
 
+pub mod background;
 pub mod cache;
 pub mod color_support;
 pub mod env_appearance;
@@ -23,6 +24,7 @@ pub mod system_appearance;
 mod terminal_default;
 pub mod tokyonight;
 
+pub use background::BackgroundOverride;
 pub use color_support::quantize;
 pub use tokyonight::{Theme, pulse_brightness, wave_brightness};
 
@@ -278,10 +280,18 @@ impl Theme {
             // if reached, fall back to GrokNight.
             ThemeKind::Auto => Self::groknight(),
         };
-        // Sample polarity pre-quantization — post-quantize `bg_base` may
-        // land on a named/indexed entry whose luminance is host-palette-
-        // dependent.
-        let dark = base.is_dark();
+        let background = cache::background_override();
+        // Sample polarity pre-quantization and pre-Reset: post-quantize
+        // `bg_base` may land on a named/indexed entry whose luminance is
+        // host-palette-dependent, and `background = "terminal"` sets
+        // `bg_base` to Reset (which `is_dark` treats as dark).
+        let dark = match background.polarity_rgb() {
+            Some((r, g, b)) => {
+                osc11::classify_luminance(r, g, b) == system_appearance::SystemAppearance::Dark
+            }
+            None => base.is_dark(),
+        };
+        let base = base.apply_background_override(background);
         let adapted = if cfg!(target_os = "windows") {
             base.windows_contrast_boost(dark)
         } else {

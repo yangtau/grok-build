@@ -81,6 +81,10 @@ follow_up_behavior = "queue"           # mid-turn follow-ups: "queue" (wait for 
                                        # next tool/model safe gap). See Keyboard Shortcuts → Mid-turn.
 screen_mode = "fullscreen"             # default render mode: "fullscreen" | "minimal"
                                        # (unset → fullscreen); set via /settings → Default screen mode
+# theme = "grokday"                    # groknight (default) | grokday | tokyonight |
+                                       # rosepine-moon | oscura-midnight | auto
+# background = "terminal"              # unset = theme canvas; "terminal" = inherit the
+                                       # emulator background; or a hex color ("#fdf6e3")
 
 [features]
 telemetry = false                      # anonymous usage telemetry

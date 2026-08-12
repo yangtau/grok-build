@@ -51,6 +51,42 @@ theme = "tokyonight"
 
 ---
 
+## Custom Canvas Background
+
+Built-in themes paint their own canvas color (`bg_base`) over the terminal. If you want Grok to sit on the same background as the rest of your terminal — a cream Ghostty profile next to a cream shell pane, or a transparent window — set `[ui].background`.
+
+```toml
+[ui]
+theme = "grokday"          # keep the light-theme accents
+background = "terminal"    # leave the emulator's own background unpainted
+```
+
+| Value | Effect |
+|-------|--------|
+| unset / `theme` | Use the selected theme's canvas (default). |
+| `terminal` | Do not paint the canvas. Your terminal profile (including transparency) shows through. Elevated surfaces — prompt cards, hover, code-block backgrounds — keep the theme's slightly offset colors. |
+| `#rgb` / `#rrggbb` | Paint this color as the canvas and shift the rest of the background ramp by the same per-channel delta, so cards and diffs stay related to the new color instead of leftover theme-gray. |
+
+Aliases for `terminal`: `transparent`, `inherit`, `reset`. A 3- or 6-digit hex value may omit the `#`.
+
+This is independent of `/theme`. Pick GrokDay (or `auto`) for light-terminal accents, then set `background` so the canvas matches your profile.
+
+You can also set `GROK_BACKGROUND` (or `LC_GROK_BACKGROUND`) without editing `config.toml`. Env wins over the file.
+
+This is a config-file / env knob — it does not appear in `/settings`. Restart Grok after changing it.
+
+To copy a specific profile color instead of inheriting it, put the hex from your terminal config in `background`. Example for Solarized Light:
+
+```toml
+[ui]
+theme = "grokday"
+background = "#fdf6e3"
+```
+
+**Minimal mode** (`--minimal` / `screen_mode = "minimal"`) already draws on the terminal's own background and ignores theme settings, including this one.
+
+---
+
 ## Auto Theme (System Appearance)
 
 Set `theme = "auto"` to have Grok follow your operating system's light/dark appearance and switch themes automatically:

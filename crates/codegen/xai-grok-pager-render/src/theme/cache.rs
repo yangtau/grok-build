@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use super::ThemeKind;
+use super::background::BackgroundOverride;
 use super::system_appearance;
 
 /// In-memory theme kind, encoded as a `u8` matching the
@@ -59,6 +60,13 @@ fn theme_kind_from_u8(byte: u8) -> ThemeKind {
 /// invalidated when the user changes mappings via the settings modal
 /// or the `/theme auto` slash command.
 static AUTO_THEME_CONFIG: Mutex<Option<AutoThemeConfig>> = Mutex::new(None);
+
+/// Canvas-background override (`[ui].background` / `GROK_BACKGROUND`).
+///
+/// `None` = not loaded yet (next read seeds from env + disk). Tests pin
+/// `Some(Theme)` in `reset_for_test` so they never pick up the
+/// developer's real `config.toml`.
+static BACKGROUND_OVERRIDE: Mutex<Option<BackgroundOverride>> = Mutex::new(None);
 
 /// Auto-theme config: which themes map to dark/light system appearance.
 ///
@@ -156,6 +164,36 @@ pub fn auto_theme_config() -> AutoThemeConfig {
 /// and the `/theme auto` slash command.
 pub fn invalidate_auto_theme_config() {
     *AUTO_THEME_CONFIG.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Current canvas-background override. Seeds from env + config on first call.
+#[must_use]
+pub fn background_override() -> BackgroundOverride {
+    let mut guard = BACKGROUND_OVERRIDE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(value) = *guard {
+        return value;
+    }
+    let value = load_background_override();
+    *guard = Some(value);
+    value
+}
+
+/// Pin the in-memory canvas override without writing to disk.
+///
+/// Used by tests and by a live settings/slash-command apply path.
+pub fn set_background_override(value: BackgroundOverride) {
+    *BACKGROUND_OVERRIDE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(value);
+}
+
+/// Drop the cached override so the next read re-seeds from env + disk.
+pub fn invalidate_background_override() {
+    *BACKGROUND_OVERRIDE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 // -- Theme resolution --------------------------------------------------------
@@ -276,6 +314,55 @@ fn load_from_disk() -> Option<ThemeKind> {
     value.and_then(ThemeKind::from_name)
 }
 
+/// Resolve the canvas override: env (`GROK_BACKGROUND` / `LC_GROK_BACKGROUND`)
+/// wins over `[ui].background`. Unset / unparsable → theme default.
+fn load_background_override() -> BackgroundOverride {
+    load_background_override_from(
+        env_background_name().as_deref(),
+        load_background_from_disk().as_deref(),
+    )
+}
+
+fn env_background_name() -> Option<String> {
+    env_background_name_from(&crate::host::collect_unicode_env()).map(str::to_owned)
+}
+
+fn env_background_name_from(env: &HashMap<String, String>) -> Option<&str> {
+    for key in ["GROK_BACKGROUND", "LC_GROK_BACKGROUND"] {
+        let Some(raw) = env
+            .get(key)
+            .map(String::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if BackgroundOverride::parse(raw).is_some() {
+            return Some(raw);
+        }
+    }
+    None
+}
+
+fn load_background_from_disk() -> Option<String> {
+    let root = xai_grok_config::load_effective_config_disk_only().ok()?;
+    let table = root.as_table()?;
+    table
+        .get("ui")
+        .and_then(|ui| ui.get("background"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+fn load_background_override_from(
+    env_value: Option<&str>,
+    config_value: Option<&str>,
+) -> BackgroundOverride {
+    env_value
+        .and_then(BackgroundOverride::parse)
+        .or_else(|| config_value.and_then(BackgroundOverride::parse))
+        .unwrap_or(BackgroundOverride::Theme)
+}
+
 /// Load auto-theme configuration from the effective config.
 ///
 /// Reads `[ui].auto_dark_theme` and `[ui].auto_light_theme`, parsing them
@@ -313,6 +400,9 @@ pub fn reset_for_test() {
     AUTO_MODE.store(false, Ordering::Relaxed);
     set_terminal_native_lock(false);
     *AUTO_THEME_CONFIG.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *BACKGROUND_OVERRIDE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(BackgroundOverride::Theme);
 }
 
 /// Seed `AUTO_THEME_CONFIG` with explicit defaults so `auto_theme_config()`
@@ -338,6 +428,7 @@ pub fn test_lock() -> &'static Mutex<()> {
 pub fn pin_theme() -> std::sync::MutexGuard<'static, ()> {
     let guard = test_lock().lock().unwrap_or_else(|e| e.into_inner());
     set(ThemeKind::GrokNight);
+    set_background_override(BackgroundOverride::Theme);
     // Color level is a write-once `OnceLock`; tests run without a TTY so it
     // resolves to `TrueColor` anyway. Pin it explicitly (best-effort: ignore the
     // already-initialized `Err`) so the measure path that reads it stays fixed.
@@ -784,6 +875,90 @@ mod tests {
                 ThemeKind::GrokNight
             );
             assert!(is_auto_mode());
+        });
+    }
+
+    // -- background override --------------------------------------------------
+
+    #[test]
+    fn background_env_wins_over_config() {
+        assert_eq!(
+            load_background_override_from(Some("terminal"), Some("#fdf6e3")),
+            BackgroundOverride::Terminal
+        );
+        assert_eq!(
+            load_background_override_from(Some("#aabbcc"), Some("terminal")),
+            BackgroundOverride::Rgb(0xaa, 0xbb, 0xcc)
+        );
+    }
+
+    #[test]
+    fn background_falls_through_to_config_then_theme() {
+        assert_eq!(
+            load_background_override_from(None, Some("terminal")),
+            BackgroundOverride::Terminal
+        );
+        assert_eq!(
+            load_background_override_from(None, None),
+            BackgroundOverride::Theme
+        );
+        assert_eq!(
+            load_background_override_from(Some("not-a-color"), Some("#fdf6e3")),
+            BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3)
+        );
+    }
+
+    #[test]
+    fn env_background_name_prefers_grok_over_lc() {
+        let env = theme_env(&[
+            ("GROK_BACKGROUND", "terminal"),
+            ("LC_GROK_BACKGROUND", "#ffffff"),
+        ]);
+        assert_eq!(env_background_name_from(&env), Some("terminal"));
+    }
+
+    #[test]
+    fn env_background_name_skips_empty_and_invalid() {
+        let env = theme_env(&[
+            ("GROK_BACKGROUND", ""),
+            ("LC_GROK_BACKGROUND", "not-a-color"),
+        ]);
+        assert_eq!(env_background_name_from(&env), None);
+        let env = theme_env(&[("LC_GROK_BACKGROUND", "#fdf6e3")]);
+        assert_eq!(env_background_name_from(&env), Some("#fdf6e3"));
+    }
+
+    #[test]
+    fn current_applies_terminal_canvas_without_changing_kind() {
+        with_test_env(|| {
+            set(ThemeKind::GrokDay);
+            set_background_override(BackgroundOverride::Terminal);
+            let theme = super::super::Theme::current();
+            assert_eq!(theme.bg_base, ratatui::style::Color::Reset);
+            assert_eq!(theme.bg_terminal, ratatui::style::Color::Reset);
+            assert_eq!(
+                theme.accent_assistant,
+                super::super::Theme::grokday().accent_assistant
+            );
+        });
+    }
+
+    #[test]
+    fn current_applies_rgb_canvas() {
+        with_test_env(|| {
+            set(ThemeKind::GrokDay);
+            set_background_override(BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3));
+            let theme = super::super::Theme::current();
+            assert_eq!(theme.bg_base, ratatui::style::Color::Rgb(0xfd, 0xf6, 0xe3));
+        });
+    }
+
+    #[test]
+    fn reset_for_test_pins_theme_background() {
+        with_test_env(|| {
+            set_background_override(BackgroundOverride::Terminal);
+            reset_for_test();
+            assert_eq!(background_override(), BackgroundOverride::Theme);
         });
     }
 
