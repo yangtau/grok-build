@@ -1,0 +1,212 @@
+# Build the grok CLI and publish GitHub Release assets for the Nix flake.
+#
+# Trigger: workflow_dispatch, or a tag matching r-* / v*.
+# The flake (nix/package.nix) fetchurl's these assets by tag + SRI hash.
+# After a successful publish this job commits nix/hashes.json ([skip ci]).
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "r-*"
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: ${{ matrix.triple }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triple: aarch64-apple-darwin
+            nix_system: aarch64-darwin
+          - os: ubuntu-24.04
+            triple: x86_64-unknown-linux-gnu
+            nix_system: x86_64-linux
+          - os: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-gnu
+            nix_system: aarch64-linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-dist-${{ matrix.triple }}
+          cache-on-failure: true
+
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler cmake pkg-config
+
+      - name: Drop private async-openai git patch
+        # The workspace patches crates.io async-openai onto xAI's private
+        # our-forks repo, which public CI cannot clone. crates.io 0.33.0 is
+        # the declared workspace version; sampling-types already work around
+        # the missing fork-only fields.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("Cargo.toml")
+          text = p.read_text()
+          needle = (
+              "[patch.crates-io]\n"
+              'async-openai = { git = "https://github.com/our-forks/async-openai.git", '
+              'rev = "95b52ebdedf42143083cf3d6f0e0be7c84e9c808" }\n\n'
+          )
+          if needle not in text:
+              raise SystemExit("expected [patch.crates-io] async-openai block missing")
+          p.write_text(text.replace(needle, "", 1))
+          print("removed [patch.crates-io] async-openai")
+          PY
+          cargo update -p async-openai
+
+      - name: Build
+        run: |
+          export PROTOC="$(command -v protoc)"
+          echo "PROTOC=${PROTOC}"
+          cargo build -p xai-grok-pager-bin --profile release-dist --features release-dist
+
+      - name: Package
+        env:
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+          src=target/release-dist/xai-grok-pager
+          test -x "$src"
+          mkdir -p dist
+          cp "$src" dist/grok
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            strip -x dist/grok || strip dist/grok
+          else
+            strip dist/grok
+          fi
+          chmod 755 dist/grok
+          tar -czf "grok-${TRIPLE}.tar.gz" -C dist grok
+          ls -lh "grok-${TRIPLE}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grok-${{ matrix.triple }}
+          path: grok-${{ matrix.triple }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Write nix/hashes.json
+        run: |
+          set -euo pipefail
+          SHORT="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          export TAG="r-${SHORT}"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib
+          mapping = {
+              "grok-aarch64-apple-darwin.tar.gz": "aarch64-darwin",
+              "grok-x86_64-unknown-linux-gnu.tar.gz": "x86_64-linux",
+              "grok-aarch64-unknown-linux-gnu.tar.gz": "aarch64-linux",
+          }
+          artifacts = pathlib.Path("artifacts")
+          hashes = {}
+          for name, system in mapping.items():
+              path = artifacts / name
+              if not path.is_file():
+                  print(f"skip missing {name}")
+                  continue
+              digest = hashlib.sha256(path.read_bytes()).digest()
+              hashes[system] = "sha256-" + base64.b64encode(digest).decode()
+              print(f"{system}: {hashes[system]} ({path.stat().st_size} bytes)")
+          if not hashes:
+              raise SystemExit("no artifacts to hash")
+          tag = os.environ["TAG"]
+          payload = {
+              "tag": tag,
+              "version": f"1.0.1-{tag.removeprefix('r-')}",
+              "hashes": hashes,
+          }
+          out = pathlib.Path("nix/hashes.json")
+          out.write_text(json.dumps(payload, indent=2) + "\n")
+          print(out.read_text())
+          PY
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="Prebuilt \`grok\` for Nix.
+
+          Install:
+
+          \`\`\`sh
+          nix profile install github:${{ github.repository }}
+          \`\`\`
+
+          Or add this repo as a flake input and take \`packages.\${system}.default\`.
+          The flake fetchurl's these assets (see \`nix/hashes.json\`).
+
+          Source: ${{ github.sha }}
+          "
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" artifacts/grok-*.tar.gz nix/hashes.json --clobber
+          else
+            gh release create "${TAG}" \
+              artifacts/grok-*.tar.gz \
+              nix/hashes.json \
+              --title "grok ${TAG}" \
+              --notes "${notes}"
+          fi
+
+      - name: Commit hashes for the flake
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nix/hashes.json
+          if git diff --cached --quiet; then
+            echo "hashes.json unchanged"
+            exit 0
+          fi
+          git commit -m "chore(nix): bump release hashes to ${TAG} [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
