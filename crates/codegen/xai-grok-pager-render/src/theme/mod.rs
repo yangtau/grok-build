@@ -20,6 +20,7 @@ pub mod md_style;
 pub mod osc11;
 mod oscura;
 mod rosepine;
+pub mod shortcuts_bar_pref;
 pub mod system_appearance;
 mod terminal_default;
 pub mod tokyonight;
