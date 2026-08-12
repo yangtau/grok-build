@@ -57,14 +57,6 @@ pub struct UiConfig {
     /// Theme to use when the OS is in light mode. Written by the pager's theme persist module.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_light_theme: Option<String>,
-    /// Canvas background overlay on top of the selected theme.
-    ///
-    /// `None` / `"theme"` keeps the theme's own `bg_base`. `"terminal"`
-    /// leaves the emulator background unpainted (`Color::Reset`). A hex
-    /// color (`"#fdf6e3"`) remaps the theme's background ramp around that
-    /// RGB. Config-file / env (`GROK_BACKGROUND`) only — no `/settings` row.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub background: Option<String>,
     /// Mouse-wheel and trackpad scroll speed multiplier (1–100).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll_speed: Option<u8>,
@@ -272,7 +264,6 @@ impl Default for UiConfig {
             confirm_before_rewind: None,
             auto_dark_theme: None,
             auto_light_theme: None,
-            background: None,
             scroll_speed: None,
             scroll_mode: None,
             invert_scroll: None,
@@ -435,19 +426,5 @@ mod tests {
         assert!(DisplayRefreshSettings::default().is_default());
         let ui = UiConfig::default();
         assert!(ui.display_refresh.is_default());
-    }
-
-    #[test]
-    fn background_deserializes_and_skips_when_unset() {
-        let ui: UiConfig = serde_json::from_str(r#"{"background": "terminal"}"#).unwrap();
-        assert_eq!(ui.background.as_deref(), Some("terminal"));
-
-        let hex: UiConfig = serde_json::from_str(r##"{"background": "#fdf6e3"}"##).unwrap();
-        assert_eq!(hex.background.as_deref(), Some("#fdf6e3"));
-
-        let default = UiConfig::default();
-        assert!(default.background.is_none());
-        let encoded = serde_json::to_value(&default).unwrap();
-        assert!(encoded.get("background").is_none());
     }
 }

@@ -18,9 +18,16 @@
 //! original RGB `bg_base` (Reset would otherwise make [`Theme::is_dark`]
 //! fall back to dark) and *before* quantization / Windows contrast boost.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use ratatui::style::Color;
 
 use super::Theme;
+use super::system_appearance::SystemAppearance;
+
+/// Cached `[ui].background` / `GROK_BACKGROUND`. `None` = not loaded yet.
+static OVERRIDE: Mutex<Option<BackgroundOverride>> = Mutex::new(None);
 
 /// How the theme canvas should be painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,6 +90,70 @@ impl BackgroundOverride {
             Self::Theme | Self::Terminal => None,
         }
     }
+}
+
+/// Current canvas override. Seeds from env then `[ui].background` on first call.
+#[must_use]
+pub fn current() -> BackgroundOverride {
+    let mut guard = OVERRIDE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(value) = *guard {
+        return value;
+    }
+    let value = load();
+    *guard = Some(value);
+    value
+}
+
+/// Pin the in-memory override without touching disk.
+pub fn set(value: BackgroundOverride) {
+    *OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+}
+
+/// Pin `Theme` so tests never pick up the developer's `config.toml`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_for_test() {
+    set(BackgroundOverride::Theme);
+}
+
+fn load() -> BackgroundOverride {
+    resolve(env_name().as_deref(), from_disk().as_deref())
+}
+
+fn env_name() -> Option<String> {
+    env_name_from(&crate::host::collect_unicode_env()).map(str::to_owned)
+}
+
+fn env_name_from(env: &HashMap<String, String>) -> Option<&str> {
+    for key in ["GROK_BACKGROUND", "LC_GROK_BACKGROUND"] {
+        let Some(raw) = env
+            .get(key)
+            .map(String::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if BackgroundOverride::parse(raw).is_some() {
+            return Some(raw);
+        }
+    }
+    None
+}
+
+fn from_disk() -> Option<String> {
+    let root = xai_grok_config::load_effective_config_disk_only().ok()?;
+    let table = root.as_table()?;
+    table
+        .get("ui")
+        .and_then(|ui| ui.get("background"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+fn resolve(env_value: Option<&str>, config_value: Option<&str>) -> BackgroundOverride {
+    env_value
+        .and_then(BackgroundOverride::parse)
+        .or_else(|| config_value.and_then(BackgroundOverride::parse))
+        .unwrap_or(BackgroundOverride::Theme)
 }
 
 /// `#rgb`, `#rrggbb`, or the same without a leading `#`.
@@ -156,6 +227,21 @@ impl Theme {
                 }
             }
         }
+    }
+
+    /// Apply the cached canvas override and return `(theme, is_dark)`.
+    ///
+    /// Polarity is sampled *before* a `terminal` Reset would make
+    /// [`Theme::is_dark`] fall back to dark. Called from [`Theme::current`]
+    /// before quantization / Windows contrast boost.
+    #[must_use]
+    pub fn with_fork_canvas(self) -> (Self, bool) {
+        let background = current();
+        let dark = match background.polarity_rgb() {
+            Some((r, g, b)) => super::osc11::classify_luminance(r, g, b) == SystemAppearance::Dark,
+            None => self.is_dark(),
+        };
+        (self.apply_background_override(background), dark)
     }
 }
 
@@ -299,5 +385,86 @@ mod tests {
         );
         let applied = Theme::grokday().apply_background_override(BackgroundOverride::Rgb(r, g, b));
         assert!(!applied.is_dark());
+    }
+
+    fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn resolve_env_wins_over_config() {
+        assert_eq!(
+            resolve(Some("terminal"), Some("#fdf6e3")),
+            BackgroundOverride::Terminal
+        );
+        assert_eq!(
+            resolve(Some("#aabbcc"), Some("terminal")),
+            BackgroundOverride::Rgb(0xaa, 0xbb, 0xcc)
+        );
+    }
+
+    #[test]
+    fn resolve_falls_through_to_config_then_theme() {
+        assert_eq!(
+            resolve(None, Some("terminal")),
+            BackgroundOverride::Terminal
+        );
+        assert_eq!(resolve(None, None), BackgroundOverride::Theme);
+        assert_eq!(
+            resolve(Some("not-a-color"), Some("#fdf6e3")),
+            BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3)
+        );
+    }
+
+    #[test]
+    fn env_prefers_grok_over_lc() {
+        let map = env(&[
+            ("GROK_BACKGROUND", "terminal"),
+            ("LC_GROK_BACKGROUND", "#ffffff"),
+        ]);
+        assert_eq!(env_name_from(&map), Some("terminal"));
+    }
+
+    #[test]
+    fn env_skips_empty_and_invalid() {
+        let map = env(&[
+            ("GROK_BACKGROUND", ""),
+            ("LC_GROK_BACKGROUND", "not-a-color"),
+        ]);
+        assert_eq!(env_name_from(&map), None);
+        let map = env(&[("LC_GROK_BACKGROUND", "#fdf6e3")]);
+        assert_eq!(env_name_from(&map), Some("#fdf6e3"));
+    }
+
+    #[test]
+    fn cache_pins_and_reset_for_test() {
+        set(BackgroundOverride::Terminal);
+        assert_eq!(current(), BackgroundOverride::Terminal);
+        reset_for_test();
+        assert_eq!(current(), BackgroundOverride::Theme);
+    }
+
+    #[test]
+    fn with_fork_canvas_applies_cached_terminal() {
+        reset_for_test();
+        set(BackgroundOverride::Terminal);
+        let (theme, dark) = Theme::grokday().with_fork_canvas();
+        assert!(!dark, "terminal override keeps GrokDay polarity");
+        assert_eq!(theme.bg_base, Color::Reset);
+        assert_eq!(theme.accent_assistant, Theme::grokday().accent_assistant);
+        reset_for_test();
+    }
+
+    #[test]
+    fn with_fork_canvas_applies_cached_rgb() {
+        reset_for_test();
+        set(BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3));
+        let (theme, dark) = Theme::grokday().with_fork_canvas();
+        assert!(!dark);
+        assert_eq!(theme.bg_base, Color::Rgb(0xfd, 0xf6, 0xe3));
+        reset_for_test();
     }
 }

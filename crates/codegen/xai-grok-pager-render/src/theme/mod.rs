@@ -280,18 +280,10 @@ impl Theme {
             // if reached, fall back to GrokNight.
             ThemeKind::Auto => Self::groknight(),
         };
-        let background = cache::background_override();
-        // Sample polarity pre-quantization and pre-Reset: post-quantize
-        // `bg_base` may land on a named/indexed entry whose luminance is
-        // host-palette-dependent, and `background = "terminal"` sets
-        // `bg_base` to Reset (which `is_dark` treats as dark).
-        let dark = match background.polarity_rgb() {
-            Some((r, g, b)) => {
-                osc11::classify_luminance(r, g, b) == system_appearance::SystemAppearance::Dark
-            }
-            None => base.is_dark(),
-        };
-        let base = base.apply_background_override(background);
+        // Sample polarity pre-quantization — post-quantize `bg_base` may
+        // land on a named/indexed entry whose luminance is host-palette-
+        // dependent. `with_fork_canvas` is this fork's `[ui].background` hook.
+        let (base, dark) = base.with_fork_canvas();
         let adapted = if cfg!(target_os = "windows") {
             base.windows_contrast_boost(dark)
         } else {
