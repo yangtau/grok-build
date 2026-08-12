@@ -448,6 +448,12 @@ mod tests {
         seed_auto_theme_defaults_for_test();
         // Set LOADED=true so current_kind() doesn't read from disk.
         set(ThemeKind::GrokNight);
+        // Same best-effort pin as `pin_theme`: Theme::current() quantizes
+        // through color_support::detect(), and NO_COLOR locks that OnceLock
+        // at ColorLevel::None (every slot → Reset). Ignore Err if another
+        // test already initialized the lock.
+        let _ =
+            super::super::color_support::set(super::super::color_support::ColorLevel::TrueColor);
         system_appearance::clear_mock();
         f();
         system_appearance::clear_mock();
@@ -933,7 +939,14 @@ mod tests {
         with_test_env(|| {
             set(ThemeKind::GrokDay);
             set_background_override(BackgroundOverride::Terminal);
-            let theme = super::super::Theme::current();
+            assert_eq!(background_override(), BackgroundOverride::Terminal);
+            assert_eq!(current_kind(), ThemeKind::GrokDay);
+            // Assert on the pre-quantize apply path. Theme::current() also
+            // runs color_support::detect(); with NO_COLOR that locks
+            // ColorLevel::None and wipes every slot to Reset, which is
+            // production-correct but not what this overlay contract tests.
+            let theme =
+                super::super::Theme::grokday().apply_background_override(background_override());
             assert_eq!(theme.bg_base, ratatui::style::Color::Reset);
             assert_eq!(theme.bg_terminal, ratatui::style::Color::Reset);
             assert_eq!(
@@ -948,7 +961,12 @@ mod tests {
         with_test_env(|| {
             set(ThemeKind::GrokDay);
             set_background_override(BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3));
-            let theme = super::super::Theme::current();
+            assert_eq!(
+                background_override(),
+                BackgroundOverride::Rgb(0xfd, 0xf6, 0xe3)
+            );
+            let theme =
+                super::super::Theme::grokday().apply_background_override(background_override());
             assert_eq!(theme.bg_base, ratatui::style::Color::Rgb(0xfd, 0xf6, 0xe3));
         });
     }
