@@ -1,5 +1,20 @@
 {
   "nodes": {
+    "nix-prebuilt": {
+      "locked": {
+        "lastModified": 1786967615,
+        "narHash": "sha256-9ZM0R6QGf+ZBwltY/75Lu5s5bKVzS8PIt948MLzVzSw=",
+        "owner": "yangtau",
+        "repo": "nix-prebuilt",
+        "rev": "9821d0d196dccf32b229a7c81fd6b1ac283ecaad",
+        "type": "github"
+      },
+      "original": {
+        "owner": "yangtau",
+        "repo": "nix-prebuilt",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1786384358,
@@ -18,6 +33,7 @@
     },
     "root": {
       "inputs": {
+        "nix-prebuilt": "nix-prebuilt",
         "nixpkgs": "nixpkgs"
       }
     }

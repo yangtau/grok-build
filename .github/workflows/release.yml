@@ -1,19 +1,13 @@
-# Build the grok CLI and publish GitHub Release assets for the Nix flake.
-#
-# Trigger: push to main, workflow_dispatch, or a tag matching r-* / v*.
-# macOS aarch64 only. The flake fetchurl's the asset by tag + SRI hash.
-# After a successful publish this job commits nix/hashes.json ([skip ci]).
+# Custom cargo build (private crate patch + protoc), then the shared
+# nix-prebuilt publish workflow uploads the rolling `prebuilt` Release.
 name: release
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    tags:
-      - "r-*"
-      - "v*"
     paths-ignore:
-      - "nix/hashes.json"
+      - ".nix/prebuilt-hashes.json"
       - "**/*.md"
 
 permissions:
@@ -30,7 +24,8 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.triple }}
+    name: ${{ matrix.system }}
+    if: ${{ !contains(github.event.head_commit.message || '', 'record prebuilt hashes') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     strategy:
@@ -38,8 +33,7 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            triple: aarch64-apple-darwin
-            nix_system: aarch64-darwin
+            system: aarch64-darwin
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +43,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-dist-${{ matrix.triple }}
+          shared-key: release-dist-${{ matrix.system }}
           cache-on-failure: true
 
       - name: Install protoc (macOS)
@@ -100,7 +94,7 @@ jobs:
 
       - name: Package
         env:
-          TRIPLE: ${{ matrix.triple }}
+          SYSTEM: ${{ matrix.system }}
         run: |
           set -euo pipefail
           src=target/release-dist/xai-grok-pager
@@ -113,105 +107,30 @@ jobs:
             strip dist/grok
           fi
           chmod 755 dist/grok
-          tar -czf "grok-${TRIPLE}.tar.gz" -C dist grok
-          ls -lh "grok-${TRIPLE}.tar.gz"
+          tar -czf "grok-${SYSTEM}.tar.gz" -C dist grok
+          ls -lh "grok-${SYSTEM}.tar.gz"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: grok-${{ matrix.triple }}
-          path: grok-${{ matrix.triple }}.tar.gz
+          name: ${{ matrix.system }}
+          path: grok-${{ matrix.system }}.tar.gz
           if-no-files-found: error
           retention-days: 14
 
-  release:
-    name: publish
-    needs: build
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Write nix/hashes.json
-        run: |
-          set -euo pipefail
-          SHORT="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          export TAG="r-${SHORT}"
-          echo "TAG=${TAG}" >> "$GITHUB_ENV"
-          python3 - <<'PY'
-          import base64, hashlib, json, os, pathlib
-          mapping = {
-              "grok-aarch64-apple-darwin.tar.gz": "aarch64-darwin",
-              "grok-x86_64-unknown-linux-gnu.tar.gz": "x86_64-linux",
-              "grok-aarch64-unknown-linux-gnu.tar.gz": "aarch64-linux",
-          }
-          artifacts = pathlib.Path("artifacts")
-          hashes = {}
-          for name, system in mapping.items():
-              path = artifacts / name
-              if not path.is_file():
-                  print(f"skip missing {name}")
-                  continue
-              digest = hashlib.sha256(path.read_bytes()).digest()
-              hashes[system] = "sha256-" + base64.b64encode(digest).decode()
-              print(f"{system}: {hashes[system]} ({path.stat().st_size} bytes)")
-          if not hashes:
-              raise SystemExit("no artifacts to hash")
-          tag = os.environ["TAG"]
-          payload = {
-              "tag": tag,
-              "version": f"1.0.1-{tag.removeprefix('r-')}",
-              "hashes": hashes,
-          }
-          out = pathlib.Path("nix/hashes.json")
-          out.write_text(json.dumps(payload, indent=2) + "\n")
-          print(out.read_text())
-          PY
-
-      - name: Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          notes="Prebuilt \`grok\` for Nix.
-
-          Install:
-
-          \`\`\`sh
-          nix profile install github:${{ github.repository }}
-          \`\`\`
-
-          Or add this repo as a flake input and take \`packages.\${system}.default\`.
-          The flake fetchurl's these assets (see \`nix/hashes.json\`).
-
-          Source: ${{ github.sha }}
-          "
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" artifacts/grok-*.tar.gz nix/hashes.json --clobber
-          else
-            gh release create "${TAG}" \
-              artifacts/grok-*.tar.gz \
-              nix/hashes.json \
-              --title "grok ${TAG}" \
-              --notes "${notes}"
-          fi
-
-      - name: Commit hashes for the flake
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add nix/hashes.json
-          if git diff --cached --quiet; then
-            echo "hashes.json unchanged"
-            exit 0
-          fi
-          git commit -m "chore(nix): bump release hashes to ${TAG} [skip ci]"
-          git pull --rebase origin main
-          git push origin HEAD:main
+  prebuilt:
+    name: Publish prebuilt
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'workflow_dispatch'
+          || (github.event_name == 'push'
+              && !contains(github.event.head_commit.message, 'record prebuilt hashes')))
+    needs: [build]
+    permissions:
+      contents: write
+    uses: yangtau/nix-prebuilt/.github/workflows/publish.yml@main
+    with:
+      name: grok
+      skip-build: true
+      hashes-path: .nix/prebuilt-hashes.json
+      systems: '[{"os":"macos-14","system":"aarch64-darwin"}]'
+    secrets: inherit

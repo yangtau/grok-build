@@ -2,35 +2,59 @@
   description = "Grok Build — prebuilt GitHub Release binaries";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nix-prebuilt.url = "github:yangtau/nix-prebuilt";
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, nix-prebuilt }:
     let
+      inherit (nixpkgs) lib;
       systems = [ "aarch64-darwin" ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
+      meta = {
+        description = "Grok Build TUI (prebuilt from yangtau/grok-build releases)";
+        homepage = "https://github.com/yangtau/grok-build";
+        license = lib.licenses.asl20;
+        sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
+      };
+
+      packages = nix-prebuilt.lib.mkPackages {
+        inherit self nixpkgs meta systems;
+        pname = "grok";
+        owner = "yangtau";
+        repo = "grok-build";
+        hashes = ./.nix/prebuilt-hashes.json;
+        # Cannot compile in Nix (private async-openai). Download whenever a hash exists.
+        requireRev = false;
+        fromSource = null;
+        overridePrebuilt =
+          pkgs: drv:
+          drv.overrideAttrs (old: {
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.makeWrapper ];
+            buildInputs = (old.buildInputs or [ ]) ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.zlib ];
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/libexec $out/bin
+              tar -xzf $src -C $out/libexec
+              test -x $out/libexec/grok
+              makeWrapper $out/libexec/grok $out/bin/grok \
+                --argv0 grok \
+                --add-flags --no-auto-update
+              runHook postInstall
+            '';
+          });
+      };
     in
     {
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          grok = pkgs.callPackage ./nix/package.nix { };
-        in
-        {
-          inherit grok;
-          default = grok;
-        }
-      );
+      inherit packages;
 
-      apps = forAllSystems (system: {
+      apps = lib.genAttrs systems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/grok";
+          program = "${packages.${system}.default}/bin/grok";
         };
       });
 
       overlays.default = final: prev: {
-        grok-build = final.callPackage ./nix/package.nix { };
+        grok-build = packages.${final.stdenv.hostPlatform.system}.default;
       };
     };
 }

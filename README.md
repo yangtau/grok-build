@@ -54,7 +54,7 @@ features, and improvements in each release.
 ## Fork extras
 
 This tree tracks `xai-org/grok-build` plus a few isolated additions (see
-`theme/background.rs`, `nix/`, `.github/workflows/`). A scheduled Action
+`theme/background.rs`, `.nix/`, `.github/workflows/`). A scheduled Action
 rebases `main` onto `xai-org/grok-build` every 3 hours (`rebase-upstream.yml`);
 conflicts fail the job instead of merging. Manual: `gh workflow run rebase-upstream.yml`.
 
@@ -107,8 +107,8 @@ gh workflow run release.yml
 ```
 
 Pushes to `main` (and `gh workflow run release.yml`) build
-`aarch64-darwin` only, create a GitHub Release, and commit `nix/hashes.json`
-so the flake can fetch it.
+`aarch64-darwin` only, upload a rolling `prebuilt` GitHub Release, and
+commit `.nix/prebuilt-hashes.json` so the flake can fetch it.
 If you already install official `grok` via home-manager / `llm-agents.nix`,
 replace that package with this flake's output so the two don't fight on
 `PATH`. The wrapper passes `--no-auto-update` so the official updater
