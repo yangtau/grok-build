@@ -105,8 +105,8 @@ pub fn effective_compact(user_compact: bool, terminal_rows: u16) -> bool {
 ///
 /// An optional pane at height 0 is omitted along with the gap above it. The
 /// prompt, the shortcuts bar and their gaps follow their own rules; on a frame
-/// with bottom padding a `status_line_height` of 0 adds the gap above the
-/// shortcuts bar.
+/// with bottom padding a `status_line_height` of 0 and a non-zero
+/// `shortcuts_height` add the gap above the shortcuts bar.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AgentViewLayoutParams {
     pub area: Rect,
@@ -286,7 +286,8 @@ impl AgentViewLayout {
             .fold(0u16, u16::saturating_add);
         let reserved = pushed.saturating_add(shortcuts_height);
         let status_line_height = status_line_height.min(inner_area.height.saturating_sub(reserved));
-        let shortcuts_gap = u16::from(bottom_vpad > 0 && status_line_height == 0);
+        let shortcuts_gap =
+            u16::from(bottom_vpad > 0 && status_line_height == 0 && shortcuts_height > 0);
         if shortcuts_gap > 0 {
             constraints.push(Constraint::Length(shortcuts_gap));
         }

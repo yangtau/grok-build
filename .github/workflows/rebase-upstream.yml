@@ -1,0 +1,72 @@
+# Replay this fork's commits onto xai-org/grok-build/main.
+#
+# Every 3 hours (and on workflow_dispatch). Conflicts fail the job and
+# do not push — never merge, never invent a resolution.
+#
+# A GITHUB_TOKEN push does not start other workflows, so after a real
+# rebase this job dispatches `release.yml` itself.
+name: rebase-upstream
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: rebase-upstream
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Need a token that can force-push main on this fork.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebase onto xai-org/grok-build
+        id: rebase
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          echo "pushed=false" >> "$GITHUB_OUTPUT"
+
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          git remote add upstream https://github.com/xai-org/grok-build.git
+          git fetch --quiet origin main
+          git fetch --quiet upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already contains upstream/main ($(git rev-parse --short upstream/main))"
+            exit 0
+          fi
+
+          echo "Rebasing $(git rev-parse --short HEAD) onto $(git rev-parse --short upstream/main)"
+          if ! git rebase upstream/main; then
+            echo "::error::Rebase conflicted. Resolve locally: git fetch upstream && git rebase upstream/main"
+            git rebase --abort || true
+            exit 1
+          fi
+
+          git push --force-with-lease=refs/heads/main:origin/main origin HEAD:main
+          echo "Pushed $(git rev-parse --short HEAD)"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger release
+        if: steps.rebase.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref main

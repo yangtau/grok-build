@@ -63,7 +63,7 @@ pub const DEFAULT_MAX_RETRIES: u32 = 15;
 /// path deliberately waits the full `Retry-After` instead, bounded by
 /// [`RATE_LIMIT_RETRY_THRESHOLD`] attempts (and by the parse-level 120s cap
 /// on the header).
-pub const MAX_RETRY_BACKOFF: Duration = Duration::from_secs(30);
+pub const MAX_RETRY_BACKOFF: Duration = Duration::from_secs(1);
 
 /// Resolve max API retries from an optional env override, model config,
 /// or default ([`DEFAULT_MAX_RETRIES`]).
@@ -526,9 +526,9 @@ mod tests {
     #[test]
     fn backoff_first_retry_is_around_two_seconds() {
         let backoff = retry_backoff_with_jitter(1);
-        // Base 2000ms +/- 20% jitter (400ms range).
+        // Capped at MAX_RETRY_BACKOFF (1s) +/- 20% jitter.
         assert!(
-            backoff >= Duration::from_millis(1600) && backoff <= Duration::from_millis(2400),
+            backoff >= Duration::from_millis(800) && backoff <= Duration::from_millis(1200),
             "first retry backoff out of range: {:?}",
             backoff
         );
@@ -536,13 +536,11 @@ mod tests {
 
     #[test]
     fn backoff_doubles_then_caps_at_thirty_seconds() {
-        // retry_count=2: base 4s
         let r2 = retry_backoff_with_jitter(2);
-        assert!(r2 >= Duration::from_millis(3200) && r2 <= Duration::from_millis(4800));
+        assert!(r2 >= Duration::from_millis(800) && r2 <= Duration::from_millis(1200));
 
-        // retry_count=10: base would be 2^10 * 2000 = 2.048s but capped to 30s
         let r10 = retry_backoff_with_jitter(10);
-        assert!(r10 >= Duration::from_millis(24_000) && r10 <= Duration::from_millis(36_000));
+        assert!(r10 >= Duration::from_millis(800) && r10 <= Duration::from_millis(1200));
     }
 
     #[test]
@@ -550,7 +548,7 @@ mod tests {
         // retry_count = 0 corresponds to "before the first retry"; ensure
         // it does not panic and stays in the lowest backoff bucket.
         let backoff = retry_backoff_with_jitter(0);
-        assert!(backoff >= Duration::from_millis(1600) && backoff <= Duration::from_millis(2400));
+        assert!(backoff >= Duration::from_millis(800) && backoff <= Duration::from_millis(1200));
     }
 
     #[test]
@@ -737,7 +735,9 @@ mod tests {
         let err = api_err(StatusCode::INTERNAL_SERVER_ERROR, "boom");
         match classify_error(&err, 0, 5, RATE_LIMIT_RETRY_THRESHOLD) {
             RetryDecision::RetryWithClientRebuild { backoff } => {
-                assert!(backoff >= Duration::from_millis(1600));
+                assert!(
+                    backoff >= Duration::from_millis(800) && backoff <= Duration::from_millis(1200)
+                );
             }
             other => panic!("expected RetryWithClientRebuild, got {other:?}"),
         }
@@ -789,9 +789,9 @@ mod tests {
         let edge = api_err_with_retry_after(StatusCode::from_u16(522).unwrap(), 120);
         match classify_error(&edge, 1, 15, RATE_LIMIT_RETRY_THRESHOLD) {
             RetryDecision::Retry { backoff } => {
-                // 30s clamp with +/-20% jitter.
-                assert!(backoff >= Duration::from_secs(24), "got {backoff:?}");
-                assert!(backoff <= Duration::from_secs(36), "got {backoff:?}");
+                // 1s clamp with +/-20% jitter.
+                assert!(backoff >= Duration::from_millis(800), "got {backoff:?}");
+                assert!(backoff <= Duration::from_millis(1200), "got {backoff:?}");
             }
             other => panic!("expected Retry for 522, got {other:?}"),
         }
@@ -812,7 +812,9 @@ mod tests {
         let err = api_err(StatusCode::BAD_GATEWAY, "boom");
         match classify_error(&err, 1, 5, RATE_LIMIT_RETRY_THRESHOLD) {
             RetryDecision::Retry { backoff } => {
-                assert!(backoff >= Duration::from_millis(3200));
+                assert!(
+                    backoff >= Duration::from_millis(800) && backoff <= Duration::from_millis(1200)
+                );
             }
             other => panic!("expected Retry, got {other:?}"),
         }
