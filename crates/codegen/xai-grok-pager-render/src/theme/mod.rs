@@ -7,6 +7,7 @@
 //! At startup, [`Theme::current()`] quantizes every color to the terminal's detected capability level via [`Theme::quantized`].
 //! Runtime-generated colors (syntax highlighting, blending) are also quantized via [`color_support::quantize`].
 
+pub mod background;
 pub mod cache;
 pub mod color_support;
 pub mod env_appearance;
@@ -16,10 +17,12 @@ pub mod md_style;
 pub mod osc11;
 mod oscura;
 mod rosepine;
+pub mod shortcuts_bar_pref;
 pub mod system_appearance;
 mod terminal_default;
 pub mod tokyonight;
 
+pub use background::BackgroundOverride;
 pub use color_support::quantize;
 pub use tokyonight::{Theme, pulse_brightness, wave_brightness};
 
@@ -264,9 +267,10 @@ impl Theme {
             // Auto is resolved to a concrete theme before being stored; if reached, fall back to GrokNight
             ThemeKind::Auto => Self::groknight(),
         };
-        // Sample polarity before quantizing
-        // After quantization `bg_base` may land on a named or indexed entry whose luminance depends on the host palette
-        let dark = base.is_dark();
+        // Sample polarity pre-quantization. After quantization `bg_base` may
+        // land on a named or indexed entry whose luminance depends on the host
+        // palette. `with_fork_canvas` is this fork's `[ui].background` hook.
+        let (base, dark) = base.with_fork_canvas();
         let adapted = if cfg!(target_os = "windows") {
             base.windows_contrast_boost(dark)
         } else {

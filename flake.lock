@@ -1,0 +1,43 @@
+{
+  "nodes": {
+    "nix-rust-prebuilt": {
+      "locked": {
+        "lastModified": 1788195631,
+        "narHash": "sha256-QjnIfWrBpCH3Wjd5HUPQoYofj4V29oDCWGm02Uq7HuY=",
+        "owner": "yangtau",
+        "repo": "nix-rust-prebuilt",
+        "rev": "ad6efa8679f18950d1f8ae56a73590b6182523fe",
+        "type": "github"
+      },
+      "original": {
+        "owner": "yangtau",
+        "repo": "nix-rust-prebuilt",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1786384358,
+        "narHash": "sha256-RzPPiWeUtuvymnpuEWsdtzli5w4kjZs49FqEs3/1u+I=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "2fcb964de67fcf60b43471c55d5d99e61a9ccb5a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nix-rust-prebuilt": "nix-rust-prebuilt",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
