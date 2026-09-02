@@ -51,6 +51,69 @@ grok --version
 See the [changelog](https://x.ai/build/changelog) for the latest fixes,
 features, and improvements in each release.
 
+## Fork extras
+
+This tree tracks `xai-org/grok-build` plus a few isolated additions (see
+`theme/background.rs`, `.nix/`, `.github/workflows/`). A scheduled Action
+rebases `main` onto `xai-org/grok-build` every 3 hours (`rebase-upstream.yml`);
+conflicts fail the job instead of merging. Manual: `gh workflow run rebase-upstream.yml`.
+
+### Custom canvas background
+
+Built-in themes paint over the terminal profile. To match your emulator
+(including transparency), set in `~/.grok/config.toml`:
+
+```toml
+[ui]
+theme = "grokday"          # keep light-theme accents
+background = "terminal"    # do not paint the canvas
+# background = "#fdf6e3"   # or remap the bg ramp around a hex color
+```
+
+`GROK_BACKGROUND` / `LC_GROK_BACKGROUND` override the file. Restart Grok
+after changing it. This is not a `/settings` row.
+
+### Hide the shortcuts bar
+
+This fork hides the bottom hint row (`Enter: send now | …`) by default.
+`Ctrl+.` still opens the full cheatsheet. To show the bar:
+
+```toml
+[ui]
+show_shortcuts_bar = true
+```
+
+Or `GROK_SHOW_SHORTCUTS_BAR=1`. Restart Grok after changing it.
+
+## Nix (prebuilt GitHub Release)
+
+This fork does **not** compile the Rust workspace in Nix — that needs xAI's
+private `async-openai` fork. CI builds the binary and the flake `fetchurl`s
+the Release asset.
+
+```sh
+# one-off
+nix profile install github:yangtau/grok-build
+
+# or pin in your flake
+#   inputs.grok-build.url = "github:yangtau/grok-build";
+#   home.packages = [ grok-build.packages.${system}.default ];
+```
+
+Publish a new binary (from this repo):
+
+```sh
+gh workflow run release.yml
+```
+
+Pushes to `main` (and `gh workflow run release.yml`) build
+`aarch64-darwin` and `x86_64-linux`, upload a rolling `prebuilt` GitHub
+Release, and commit `.nix/prebuilt-hashes.json` so the flake can fetch it.
+If you already install official `grok` via home-manager / `llm-agents.nix`,
+replace that package with this flake's output so the two don't fight on
+`PATH`. The wrapper passes `--no-auto-update` so the official updater
+cannot overwrite the fork binary.
+
 ## Building from source
 
 Requirements:

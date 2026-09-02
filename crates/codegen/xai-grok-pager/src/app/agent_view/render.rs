@@ -1119,7 +1119,7 @@ impl AgentView {
             prompt_gap,
             model_notice_height,
             voice_recording_height,
-            shortcuts_height: 1,
+            shortcuts_height: crate::theme::shortcuts_bar_pref::reserved_height(),
             status_line_height: status_line.height(),
             compact,
         };

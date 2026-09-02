@@ -25,6 +25,8 @@ const APPEARANCE_ENV_VARS: &[&str] = &[
     "LC_GROK_APPEARANCE",
     "GROK_THEME",
     "LC_GROK_THEME",
+    "GROK_BACKGROUND",
+    "LC_GROK_BACKGROUND",
     "COLORFGBG",
 ];
 
