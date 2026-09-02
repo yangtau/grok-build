@@ -306,6 +306,8 @@ pub fn reset_for_test() {
     // next test's zero-cursor-escape assertions.
     super::set_cursor_color_applied_for_test(false);
     *AUTO_THEME_CONFIG.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    super::background::reset_for_test();
+    super::shortcuts_bar_pref::reset_for_test();
 }
 
 /// Seed `AUTO_THEME_CONFIG` with explicit defaults so `auto_theme_config()` never falls through to `load_auto_theme_config()`.
@@ -326,6 +328,8 @@ pub fn test_lock() -> &'static Mutex<()> {
 pub fn pin_theme() -> std::sync::MutexGuard<'static, ()> {
     let guard = test_lock().lock().unwrap_or_else(|e| e.into_inner());
     set(ThemeKind::GrokNight);
+    super::background::reset_for_test();
+    super::shortcuts_bar_pref::reset_for_test();
     // Deterministic level regardless of the ambient environment (agent shells export NO_COLOR, which would otherwise win the write-once detection by scheduling)
     super::color_support::set_level_for_test(super::color_support::ColorLevel::TrueColor);
     // A prior gating test may have turned the rollout gate off.
